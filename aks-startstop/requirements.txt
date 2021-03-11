@@ -1,0 +1,7 @@
+azure-mgmt-containerservice
+azure-mgmt-compute
+azure-mgmt-resource
+azure-identity
+pyOpenSSL
+msrestazure
+adal

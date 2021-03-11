@@ -1,0 +1,5 @@
+.venv
+creds.sh
+local-sp.json
+.idea
+__pycache__
