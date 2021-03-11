@@ -5,7 +5,6 @@ Azure Automation Runbook to start/stop AKS cluster
 
 Usage:
 
-    python startstop.py <clusters> <action> [<dryrun>]
     python startstop.py <clusters> <action> [<vmss>] [<dryrun>]
 
 Script needs 2 mandatory positional arguments :
