@@ -4,7 +4,7 @@ This is a python3 script to be used in an Azure Automation Runbook in order to a
 
 ## Usage
 
-    python startstop.py <clusters> <action> [<vmss>] [<dryrun>]
+    python startstop.py <clusters> <action> [<vmss>] [<dryrun>] [checkstate]
 
 Script needs 2 mandatory positional arguments :
 
@@ -16,6 +16,7 @@ Other arguments are optionals :
 * `vmss` : if 1 and cluster uses vmss, then instead of calling start/stop on the cluster itself, it
 starts/deallocates vmss instances. Enabled per default.
 * `dryrun` : if 1, then run script in dry run mode
+* `checkstate` : if 1 then check that the cluster is in succeeded state before doing anything. Enabled per default
 
 ## Monitoring
 
@@ -65,5 +66,5 @@ AzureActivity
 4. Run the script
 
     ```
-    python startstop.py mycluster start 1 1 
+    python startstop.py mycluster start 1 1 1
     ```
