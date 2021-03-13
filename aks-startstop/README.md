@@ -4,19 +4,54 @@ This is a python3 script to be used in an Azure Automation Runbook in order to a
 
 ## Usage
 
-    python startstop.py <clusters> <action> [<vmss>] [<dryrun>] [checkstate]
+    python startstop.py <action> <clusters> [--use-vmss] [--dry-run] [--disable-check-state] [--disable-power-state]
+    [--auth-mode=<auth_mode>]
 
 Script needs 2 mandatory positional arguments :
 
-* `clusters` : coma separated list of AKS cluster names
 * `action` : start/stop
+* `clusters` : coma separated list of AKS cluster names
 
 Other arguments are optionals :
 
-* `vmss` : if 1 and cluster uses vmss, then instead of calling start/stop on the cluster itself, it
-starts/deallocates vmss instances. Enabled per default.
-* `dryrun` : if 1, then run script in dry run mode
-* `checkstate` : if 1 then check that the cluster is in succeeded state before doing anything. Enabled per default
+* `--use-vmss` : if the cluster uses vmss, then instead of calling start/stop on the cluster itself, it
+    starts/deallocates vmss instances.
+* `--dry-run` : run script in dry run mode
+* `--disable-check-state` : disable checking if the cluster is in Suceeded state before doing anything
+* `--disable-power-state` : disable checking if the cluster is in running/stopped state before doing anything
+* `--auth-mode=<auth_mode>` : set auth mode (see README in github repo)
+
+## Automation account installation
+
+1. Load needed python packages. At the time of writing, the python3 SDK available per default in the runbook is too old
+for the start/stop feature. You need to import newest packages. 
+   
+    Load [import-py3package](../import-py3package) runbook and start it with the following parameters :
+
+```
+-s <your subscription>
+-g <your automation account resource group>
+-a <your automation account name>
+-m azure-mgmt-containerservice==15.0.0,azure-mgmt-compute==19.0.0,azure-mgmt-resource==16.0.0,azure-identity==1.5.0
+```
+
+*Note : order of module is important. Identity needs to be last because of cryptography package*
+
+2. However there are issues with local shared libraries and conflicts between versions. Right now, I did not manage 
+   to make it works with the run as credentials. The only way I found was to create crypted automation variables based
+   on a service principal to use the [ClientSecretCredential](https://azuresdkdocs.blob.core.windows.net/$web/python/azure-identity/1.4.0/azure.identity.html#azure.identity.ClientSecretCredential)
+   
+    You will need to provide 4 variables with this name :
+
+     * `External_AksStartStop_TenantId`
+     * `External_AksStartStop_ClientId`
+     * `External_AksStartStop_ClientSecret`
+     * `Internal_AzureSubscriptionId`
+
+
+3. Run the start/stop script with the parameter `--auth-mode=automationvariables`
+
+*Note : implicitly it means that run as azure credentials is not working for this library and python version.*
 
 ## Monitoring
 
@@ -60,11 +95,10 @@ AzureActivity
     export AZURE_TENANT_ID="XXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXX"
     export AZURE_CLIENT_ID="XXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXX"
     export AZURE_CLIENT_SECRET="XXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXX"
-    export AZURE_AUTH_MODE="local"
     ```
    
 4. Run the script
 
     ```
-    python startstop.py mycluster start 1 1 1
+    python startstop.py start mycluster --use-vmss --dry-run --auth-mode=environment
     ```

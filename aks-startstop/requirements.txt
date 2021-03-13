@@ -1,7 +1,7 @@
-azure-mgmt-containerservice
-azure-mgmt-compute
-azure-mgmt-resource
-azure-identity
-pyOpenSSL
-msrestazure
-adal
+azure-mgmt-containerservice==15.0.0
+azure-mgmt-compute==19.0.0
+azure-mgmt-resource==16.0.0
+azure-identity==1.5.0
+pyOpenSSL==20.0.1
+msrestazure==0.6.4
+adal==1.2.6

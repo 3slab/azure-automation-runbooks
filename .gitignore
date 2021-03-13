@@ -3,3 +3,7 @@ creds.sh
 local-sp.json
 .idea
 __pycache__
+packages
+download
+.venv2
+*.pyc
