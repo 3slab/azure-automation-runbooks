@@ -84,6 +84,7 @@ def send_webservice_import_module_request(packagename, download_uri_for_file):
     r = requests.put(request_url, data=json.dumps(requestbody), headers=headers)
     print("Request status for package %s was %s" % (packagename, str(r.status_code)))
     if str(r.status_code) not in ["200", "201"]:
+        print(r.content)
         raise Exception("Error importing package {0} into Automation account. Error code is {1}".format(packagename,
                                                                                                         str(
                                                                                                             r.status_code)))
