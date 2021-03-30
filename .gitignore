@@ -7,3 +7,4 @@ packages
 download
 .venv2
 *.pyc
+local-sp*

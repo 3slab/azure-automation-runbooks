@@ -16,8 +16,10 @@ Other arguments are optionals :
 
 * `--use-vmss` : if the cluster uses vmss, then instead of calling start/stop on the cluster itself, it
     starts/deallocates vmss instances.
+* `--use-availability-set` : if the cluster uses availabilityset, then instead of calling start/stop on the cluster
+    itself, it starts/deallocates each vm individually
 * `--dry-run` : run script in dry run mode
-* `--disable-check-state` : disable checking if the cluster is in Suceeded state before doing anything
+* `--disable-check-state` : disable checking if the cluster is in Succeeded state before doing anything
 * `--disable-power-state` : disable checking if the cluster is in running/stopped state before doing anything
 * `--auth-mode=<auth_mode>` : set auth mode (see README in github repo)
 
@@ -72,6 +74,16 @@ AzureActivity
     | filter OperationName in ("Start Virtual Machine Scale Set", "Deallocate Virtual Machine Scale Set") 
     | sort by TimeGenerated desc
 ```
+
+Or more globally, if you just want to be alerted of the result of the runbook :
+
+```
+AzureDiagnostics
+    | where (RunbookName_s == "AksStartStop" and ResultType in ('Completed', 'Failed'))
+    | project ResourceGroup, ResultType, ResultDescription, RunbookName_s
+```
+
+*Replace `AksStartStop` by the name you have given to your runbook*
 
 ## Local development
 

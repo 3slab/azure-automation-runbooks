@@ -5,8 +5,8 @@ Azure Automation Runbook to start/stop AKS cluster
 
 Usage:
 
-    python startstop.py <action> <clusters> [--use-vmss] [--dry-run] [--disable-check-state] [--disable-power-state]
-    [--auth-mode=<auth_mode>]
+    python startstop.py <action> <clusters> [--use-vmss] [--use-availability-set] [--dry-run] [--disable-check-state]
+    [--disable-power-state] [--auth-mode=<auth_mode>]
 
 Script needs 2 mandatory arguments :
     * `clusters` : coma separated list of AKS cluster names
@@ -14,6 +14,8 @@ Script needs 2 mandatory arguments :
 Other arguments are optionals :
     * `--use-vmss` : if the cluster uses vmss, then instead of calling start/stop on the cluster itself, it
     starts/deallocates vmss instances.
+    * `--use-availability-set` : if the cluster uses availabilityset, then instead of calling start/stop on the cluster
+    itself, it starts/deallocates each vm individually
     * `--dry-run` : run script in dry run mode
     * `--disable-check-state` : disable checking if the cluster is in Suceeded state before doing anything
     * `--disable-power-state` : disable checking if the cluster is in running/stopped state before doing anything
@@ -47,6 +49,7 @@ logger.setLevel(logging.DEBUG)
 START_ACTION = 'start'
 STOP_ACTION = 'stop'
 PROFILE_TYPE_VMSS = 'VirtualMachineScaleSets'
+PROFILE_TYPE_AVAILABILITYSET = 'AvailabilitySet'
 
 resource_client = None
 containerservice_client = None
@@ -82,6 +85,34 @@ def get_automation_runas_credential(runas_connection):
     )
 
 
+def startstop_cluster_with_availabilityset(cluster, operation, dry_run):
+    logger.debug('listing availabilityset in resource group {} for cluster {} ...'.format(cluster.node_resource_group,
+                                                                                          cluster.name))
+    avset_list = list(compute_client.availability_sets.list(cluster.node_resource_group))
+    logger.debug('Found {} availabilityset'.format(len(avset_list)))
+    for avset in avset_list:
+        logger.debug('Stopping {} vm in availabilityset {} ...'.format(len(avset.virtual_machines), avset.name))
+        for vm_in_avset in avset.virtual_machines:
+            vm = resource_client.resources.get_by_id(vm_in_avset.id, api_version='2021-03-01')
+            try:
+                if operation == STOP_ACTION:
+                    logger.debug('Stopping vm {} ...'.format(vm.name))
+                    if not dry_run:
+                        compute_client.virtual_machines.begin_deallocate(cluster.node_resource_group,
+                                                                         vm.name).result()
+                elif operation == START_ACTION:
+                    logger.debug('Starting vm {} ...'.format(vm.name))
+                    if not dry_run:
+                        compute_client.virtual_machines.begin_start(cluster.node_resource_group,
+                                                                    vm.name).result()
+                logger.debug('vm {} processed'.format(vm.name))
+            except Exception as e:
+                logger.exception(e)
+                return False
+
+    return True
+
+
 def startstop_cluster_with_vmss(cluster, operation, dry_run):
     """
     Handle start/stop(deallocate) for cluster with VMSS nodepool
@@ -91,8 +122,8 @@ def startstop_cluster_with_vmss(cluster, operation, dry_run):
     :param dry_run: boolean to enable dry_run mode
     :return: True if it succeeded. Exception raised if not.
     """
-    logger.info('listing vmss in resource group {} for cluster {} ...'.format(cluster.node_resource_group,
-                                                                              cluster.name))
+    logger.debug('listing vmss in resource group {} for cluster {} ...'.format(cluster.node_resource_group,
+                                                                               cluster.name))
     vmss_list = list(compute_client.virtual_machine_scale_sets.list(cluster.node_resource_group))
     logger.debug('Found {} vmss'.format(len(vmss_list)))
 
@@ -155,7 +186,7 @@ def startstop_cluster_standard_mode(resource_group, cluster, operation, dry_run,
     return True
 
 
-def process_cluster(resource_group, cluster, operation, vmss_mode, dry_run, check_state, check_power_state):
+def process_cluster(resource_group, cluster, operation, vmss_mode, avset_mode, dry_run, check_state, check_power_state):
     """
     Process start/stop operation on a cluster
 
@@ -163,6 +194,7 @@ def process_cluster(resource_group, cluster, operation, vmss_mode, dry_run, chec
     :param cluster: a Azure SDK managedCluster object
     :param operation: START/STOP action command
     :param vmss_mode: boolean to enable vmss start/deallocate mode
+    :param avset_mode: boolean to enable availabilityset vms start/deallocate mode
     :param dry_run: boolean to enable dry_run mode
     :param check_state: boolean to check if cluster is in Succeeded state before doing anything
     :param check_power_state: check if the cluster is running or stopped before doing anything
@@ -177,14 +209,18 @@ def process_cluster(resource_group, cluster, operation, vmss_mode, dry_run, chec
 
     agentpool_profile_type = [profile.type for profile in cluster.agent_pool_profiles]
     cluster_uses_vmss = PROFILE_TYPE_VMSS in agentpool_profile_type
+    cluster_uses_availabilityset = PROFILE_TYPE_AVAILABILITYSET in agentpool_profile_type
 
     if cluster_uses_vmss and vmss_mode:
         return startstop_cluster_with_vmss(cluster, operation, dry_run)
+    elif cluster_uses_availabilityset and avset_mode:
+        return startstop_cluster_with_availabilityset(cluster, operation, dry_run)
     else:
         return startstop_cluster_standard_mode(resource_group, cluster, operation, dry_run, check_power_state)
 
 
-def process_resource_group(resource_group, clusters, operation, vmss_mode, dry_run, check_state, check_power_state):
+def process_resource_group(resource_group, clusters, operation, vmss_mode, avset_mode, dry_run, check_state,
+                           check_power_state):
     """
     Look for cluster in a resource group. If cluster in the list, attempt to start/stop it.
 
@@ -192,6 +228,7 @@ def process_resource_group(resource_group, clusters, operation, vmss_mode, dry_r
     :param clusters: a list of cluster names to attempt to start/stop if they are in the group
     :param operation: START/STOP action command
     :param vmss_mode: boolean to enable vmss start/deallocate mode
+    :param avset_mode: boolean to enable availabilityset vms start/deallocate mode
     :param dry_run: boolean to enable dry_run mode
     :param check_state: boolean to check if cluster is in Succeeded state before doing anything
     :param check_power_state: check if the cluster is running or stopped before doing anything
@@ -216,7 +253,7 @@ def process_resource_group(resource_group, clusters, operation, vmss_mode, dry_r
     for container_service in to_process_services:
         # if cluster has the correct name, process the action and store the result
         if container_service.name in clusters:
-            result = process_cluster(resource_group_name, container_service, operation, vmss_mode, dry_run,
+            result = process_cluster(resource_group_name, container_service, operation, vmss_mode, avset_mode, dry_run,
                                      check_state, check_power_state)
             if result:
                 handled_clusters.append(container_service.name)
@@ -229,13 +266,14 @@ def process_resource_group(resource_group, clusters, operation, vmss_mode, dry_r
     return errored_clusters, handled_clusters
 
 
-def main(clusters, operation, vmss_mode, dry_run, check_state, check_power_state):
+def main(clusters, operation, vmss_mode, avset_mode, dry_run, check_state, check_power_state):
     """
     Run on script startup. It list all resource groups in the subscription and starts looking for cluster in them
 
     :param clusters: a list of cluster names to attempt to start/stop
     :param operation: START/STOP action command
     :param vmss_mode: boolean to enable vmss start/deallocate mode
+    :param avset_mode: boolean to enable availabilityset vms start/deallocate mode
     :param dry_run: boolean to enable dry_run mode
     :param check_state: boolean to check if cluster is in Succeeded state before doing anything
     :param check_power_state: check if the cluster is running or stopped before doing anything
@@ -255,8 +293,8 @@ def main(clusters, operation, vmss_mode, dry_run, check_state, check_power_state
 
     # process clusters in each rg
     for resource_group in resource_groups:
-        error_in_rg, success_in_rg = process_resource_group(resource_group, clusters, operation, vmss_mode, dry_run,
-                                                            check_state, check_power_state)
+        error_in_rg, success_in_rg = process_resource_group(resource_group, clusters, operation, vmss_mode, avset_mode,
+                                                            dry_run, check_state, check_power_state)
         errored_clusters.extend(error_in_rg)
         handled_clusters.extend(success_in_rg)
 
@@ -276,6 +314,9 @@ if __name__ == "__main__":
     parser.add_argument('--use-vmss', action='store_true', default=False,
                         help='if cluster uses vmss, then instead of calling start/stop on the cluster itself, it '
                              'starts/deallocates vmss instances.')
+    parser.add_argument('--use-availability-set', action='store_true', default=False,
+                        help='if cluster uses availabilityset, then instead of calling start/stop on the cluster '
+                             'itself, it starts/deallocates each vm instances one at a time.')
     parser.add_argument('--dry-run', action='store_true', default=False, help='run script in dry run mode')
     parser.add_argument('--disable-check-state', action='store_true', default=False,
                         help='disable checking that the cluster is in succeeded state before doing anything.')
@@ -289,6 +330,7 @@ if __name__ == "__main__":
     action = args.action
     cluster_names = args.clusters
     use_vmss = args.use_vmss
+    use_avset = args.use_availability_set
     dry_mode = args.dry_run
     check_state = args.disable_check_state is False
     check_power_state = args.disable_check_power_state is False
@@ -300,6 +342,11 @@ if __name__ == "__main__":
         logger.debug('Mode VMSS start/deallocate enabled')
     else:
         logger.debug('Mode VMSS start/deallocate disabled')
+
+    if use_avset:
+        logger.debug('Mode AvailabilitySet start/deallocate enabled')
+    else:
+        logger.debug('Mode AvailabilitySet start/deallocate disabled')
 
     if dry_mode:
         logger.warning('RUNNING IN DRY MODE !!!!')
@@ -361,8 +408,8 @@ if __name__ == "__main__":
     )
 
     logger.debug('Working in subscription {} ...'.format(SUBSCRIPTION_ID))
-    with_error_clusters, processed_clusters, not_found_clusters = main(cluster_names, action, use_vmss, dry_mode,
-                                                                       check_state, check_power_state)
+    with_error_clusters, processed_clusters, not_found_clusters = main(cluster_names, action, use_vmss, use_avset,
+                                                                       dry_mode, check_state, check_power_state)
 
     if len(processed_clusters) > 0:
         logger.info('Clusters {} processed'.format(', '.join(processed_clusters)))
